@@ -1,30 +1,51 @@
 #include <Arduino.h>
+#include <SPI.h>
 
 const int pin = 12;
-#define SEQLEN 132
+
+// SEQLEN:
+// Response buffer will contain
+// 16 bytes of potentially-full data plus 
+// one additional byte, of which
+// only the 4 most significant bits are
+// of importance for their use in the stop bit
+
+#define SEQLEN 17 
 #define BUFFLEN 4
 
-// Button refs
-#define A 0
-#define B 1
-#define Z 2
-#define S 3
-#define dU 4
-#define dD 5
-#define dL 6
-#define dR 7
-#define rst 8
-#define L 10
-#define R 11
-#define cU 12
-#define cD 13
-#define cL 14
-#define cR 15
-#define X 16
-#define Y 24
+/*
 
-int frame;
+Reference for buttons
+
+ A 0
+ B 1
+ Z 2
+ S 3
+ dU 4
+ dD 5
+ dL 6
+ dR 7
+ rst 8
+ L 10
+ R 11
+ cU 12
+ cD 13
+ cL 14
+ cR 15
+ */
+ #define X 16
+ #define Y 24
+
+
+#define MSNH 0x71 // most significant nibble high
+#define LSNH 0x17 // least significant nibble high
+
+#define BYTE_FULL 0x77
+#define BYTE_EMPTY 0x11
+#define STOP_BIT 0x30
+
 volatile bool sentLast;
+
 volatile int8_t bttn1;
 volatile int8_t bttn2;
 volatile int8_t xAxis;
@@ -32,13 +53,13 @@ volatile int8_t yAxis;
 
 IntervalTimer setCommand;
 
-bool seq[SEQLEN] = {false};
-bool emptyAction[SEQLEN] = {false};
+SPISettings settings(1000000, MSBFIRST, SPI_MODE1); 
 
-unsigned currBit = 0;
-bool flip = true;
+int8_t seq[SEQLEN];
+int8_t emptyAction[SEQLEN];
 
 void setup() {
+
     init();
     Serial.begin(115200);
     Serial.print("Starting Program");
@@ -49,9 +70,11 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(pin), writeSeq, FALLING);
     setCommand.priority(0);
     setCommand.begin(nextCommand, 400);
+    SPI.begin();
 }
 
 void loop() {
+
     int count = 0;
     int8_t buff[BUFFLEN];
     while (count<BUFFLEN) {
@@ -67,17 +90,15 @@ void loop() {
 }
 
 void init() {
-    for (int i=3 ; i < SEQLEN - 4 ; i = i + 4) {
-        emptyAction[i] = true;
+
+    for (int i = 0; i < 16; i ++) {
+        emptyAction[i] = BYTE_EMPTY;
     }
+
     // Stop Bit
-    emptyAction[128] = false;
-    emptyAction[129] = false;
-    emptyAction[130] = true;
-    emptyAction[131] = true;
+    emptyAction[16] = STOP_BIT;
     resetSeq();
 
-    frame = 0;
     sentLast = true;
     bttn1 = 0;
     bttn2 = 0;
@@ -85,21 +106,23 @@ void init() {
     yAxis = 0;
 
     pinMode(pin, INPUT);
-    // Set pin interupt
+    // Set pin interrupt
 }
 
 void writeSeq() {
+
     noInterrupts();
     setCommand.end();
     delayMicroseconds(32);
+
     pinMode(pin, OUTPUT);
-    for (int i=0 ; i<SEQLEN ; i++) {
-        if (seq[i]) {
-            digitalWrite(pin, HIGH);
-        } else {
-            digitalWrite(pin, LOW);
-        }
+
+    SPI.beginTransaction(settings);
+    for(int8_t i : seq) {
+        SPI.transfer(i);
     }
+    SPI.endTransaction();
+
     pinMode(pin, INPUT);
     attachInterrupt(digitalPinToInterrupt(pin), writeSeq, FALLING);
     setCommand.begin(nextCommand, 4000);
@@ -107,85 +130,41 @@ void writeSeq() {
 }
 
 void nextCommand() {
+
     setCommand.end();
     resetSeq();
 
-    for (int i=0 ; i<8 ; i++){
-        if ((1<<i) & bttn1) {
+    for (int i=0 ; i <8 ; i++){
+        if ((0xFF>>i) & bttn1) {
             pressButton(i);
         }
-        if ((1<<i) & bttn2) {
+        if ((0xFF>>i) & bttn2) {
             pressButton(i + 8);
         }
+        if ((0xFF>>i) & xAxis) {
+            pressButton(i + 16);
+        }
+        if ((0xFF>>i) & yAxis) {
+            pressButton(i + 24);
+        }        
     }
 
-    setAxis(X, xAxis);
-    setAxis(Y, yAxis);
-
-    bttn1 = 0;
-    bttn2 = 0;
-    xAxis = 0;
-    yAxis = 0;
+    bttn1 = 0x00;
+    bttn2 = 0x00;
+    xAxis = 0x00;
+    yAxis = 0x00;
 
     //Serial.print('p');
     sentLast = true;
 
-    /*
-    if ((1<<0) & bttn1) {
-        pressButton(A);
-    }
-    if ((1<<1) & bttn1) {
-        pressButton(B);
-    }
-    if ((1<<2) & bttn1) {
-        pressButton(Z);
-    }
-    if ((1<<3) & bttn1) {
-        pressButton(S);
-    }
-    if ((1<<4) & bttn1) {
-        pressButton(dU);
-    }
-    if ((1<<5) & bttn1) {
-        pressButton(dD);
-    }
-    if ((1<<6) & bttn1) {
-        pressButton(dL);
-    }
-    if ((1<<7) & bttn2) {
-        pressButton(dR);
-    }
-    if ((1<<2) & bttn2) {
-        pressButton(L);
-    }
-    if ((1<<3) & bttn2) {
-        pressButton(R);
-    }
-    if ((1<<4) & bttn2) {
-        pressButton(cU);
-    }
-    if ((1<<5) & bttn2) {
-        pressButton(cD);
-    }
-    if ((1<<6) & bttn2) {
-        pressButton(cL);
-    }
-    if ((1<<7) & bttn2) {
-        pressButton(cR);
-    } */
 }
 
 void pressButton(int button) {
-    seq[button * 4 + 1] = true;
-    seq[button * 4 + 2] = true;
-}
-
-void setAxis(int axis, int8_t val) {
-    for (int i=0 ; i<8 ; i++) {
-        bool bit = (1<<(7-i)) & val;
-        if (bit) {
-            pressButton(axis + i);
-        }
+    int idx = button / 2;
+    if(button % 2 == 0) {
+        seq[idx] |= MSNH;
+    } else {
+        seq[idx] |= LSNH;
     }
 }
 
