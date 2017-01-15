@@ -15,7 +15,7 @@ const int pin = 12;
 
 /*
 
-Reference for buttons
+Reference for buttons:
 
  A 0
  B 1
@@ -33,16 +33,13 @@ Reference for buttons
  cL 14
  cR 15
  */
- #define X 16
- #define Y 24
 
+#define MSNH 0x71 // most significant nibble high : 01110001
+#define LSNH 0x17 // least significant nibble high : 00010111
 
-#define MSNH 0x71 // most significant nibble high
-#define LSNH 0x17 // least significant nibble high
-
-#define BYTE_FULL 0x77
-#define BYTE_EMPTY 0x11
-#define STOP_BIT 0x30
+#define BYTE_FULL 0x77 // 01110111 
+#define BYTE_EMPTY 0x11 // 00010001
+#define STOP_BIT 0x30 // 00110000
 
 volatile bool sentLast;
 
@@ -158,6 +155,13 @@ void nextCommand() {
     sentLast = true;
 
 }
+
+// To set a button/axis value, divide the bit 
+// number (0-15 for controller buttons, 16-33
+// for axis values) by two to obtain the index 
+// of the byte containing that value in `seq`.
+// Modulo the bit number by two to determine which
+// nibble in the byte to set high.
 
 void pressButton(int button) {
     int idx = button / 2;
